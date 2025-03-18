@@ -106,6 +106,14 @@ const MarkdownPreviewApp = () => {
           color: '#1a0dab',
           textDecoration: 'underline',
         },
+        linkNumber: {
+          fontSize: 10,
+          color: '#1a0dab',
+          backgroundColor: '#f0f0f0',
+          padding: 2,
+          marginHorizontal: 1,
+          borderRadius: 3,
+        },
         emphasis: {
           fontStyle: 'italic',
         },
@@ -237,13 +245,15 @@ const MarkdownPreviewApp = () => {
             {/* Footnotes section */}
             {footnotes.length > 0 && (
               <View style={styles.footnoteSection} break>
-                <Text style={styles.footnoteTitle}>References & Footnotes</Text>
+                <Text style={styles.footnoteTitle}>References</Text>
                 {footnotes.map((footnote, index) => (
-                  <View key={`footnote-${index}`} style={styles.footnoteItem}>
+                  <View key={`footnote-${index}`} style={styles.footnoteItem} id={`footnote-${index + 1}`}>
                     <Text style={styles.footnoteNumber}>[{index + 1}]</Text>
-                    <Link src={footnote.url} style={styles.footnoteText}>
-                      {footnote.title || footnote.url}
-                    </Link>
+                    <View style={{ flex: 1 }}>
+                      <Link src={footnote.url} style={styles.footnoteText}>
+                        {footnote.title || footnote.url}
+                      </Link>
+                    </View>
                   </View>
                 ))}
               </View>
@@ -252,6 +262,11 @@ const MarkdownPreviewApp = () => {
         </Document>
       );
       
+      // Generate timestamp for the filename
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+      const filename = `document_${timestamp}.pdf`;
+      
       // Generate PDF blob
       const blob = await pdf(<MyDocument />).toBlob();
       
@@ -259,7 +274,7 @@ const MarkdownPreviewApp = () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'document.pdf';
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -343,9 +358,7 @@ const MarkdownPreviewApp = () => {
           }
           
           parts.push({ 
-            type: 'link', 
-            url: linkHref, 
-            text: linkText,
+            type: 'linkRef', 
             footnoteIndex: footnoteLinkIndex + 1
           });
           
@@ -383,11 +396,19 @@ const MarkdownPreviewApp = () => {
         return <Text key={index} style={styles.strong}>{part.content}</Text>;
       } else if (part.type === 'italic') {
         return <Text key={index} style={styles.emphasis}>{part.content}</Text>;
+      } else if (part.type === 'linkRef') {
+        return (
+          <Link key={index} src={`#footnote-${part.footnoteIndex}`} style={styles.linkNumber}>
+            {part.footnoteIndex}
+          </Link>
+        );
       } else if (part.type === 'link') {
         return (
           <React.Fragment key={index}>
-            <Link src={part.url} style={styles.link}>{part.text}</Link>
-            <Text style={styles.footnoteLink}>[{part.footnoteIndex}]</Text>
+            <Text>{part.text}</Text>
+            <Text style={styles.linkNumber}>
+              <Link src={part.url}>[{part.footnoteIndex}]</Link>
+            </Text>
           </React.Fragment>
         );
       } else if (part.type === 'code') {
