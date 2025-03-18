@@ -1,12 +1,15 @@
-import React, { useState, useCallback } from 'react';
-import { FileText, Download, Upload, Copy } from 'lucide-react';
+import React, { useState, useCallback, useRef } from 'react';
+import { FileText, Upload, Printer } from 'lucide-react';
 import _ from 'lodash';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import html2pdf from 'html2pdf.js';
 
 const MarkdownPreviewApp = () => {
   const [markdownText, setMarkdownText] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  
+  // Create a ref for the markdown content
+  const printRef = useRef(null);
   
   // Handle file drop
   const handleDrop = useCallback((e) => {
@@ -55,162 +58,37 @@ const MarkdownPreviewApp = () => {
     setMarkdownText(e.target.value);
   }, []);
 
-  // Generate PDF using jsPDF and html2canvas
+  // Generate PDF using html2pdf.js
   const generatePDF = useCallback(() => {
-    const previewElement = document.querySelector('.markdown-preview');
+    setIsPrinting(true);
     
-    if (!previewElement) return;
+    const content = printRef.current;
     
-    // Show a loading indicator
-    const loadingText = document.createElement('div');
-    loadingText.className = 'absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10';
-    loadingText.innerHTML = '<span class="text-blue-600 font-medium">Generating PDF...</span>';
-    previewElement.parentNode.appendChild(loadingText);
-    
-    try {
-      // Prepare content for PDF generation with better styling
-      const pdfContent = document.createElement('div');
-      pdfContent.innerHTML = previewElement.innerHTML;
-      pdfContent.style.width = '816px'; // A4 width at 96 DPI
-      pdfContent.style.padding = '48px';
-      pdfContent.style.boxSizing = 'border-box';
-      pdfContent.style.fontSize = '14px';
-      pdfContent.style.lineHeight = '1.5';
-      pdfContent.style.fontFamily = 'Arial, Helvetica, sans-serif';
-      pdfContent.style.position = 'absolute';
-      pdfContent.style.left = '-9999px';
-      pdfContent.style.top = '0';
-      pdfContent.style.backgroundColor = 'white';
-      
-      // Apply additional styles for better formatting
-      const styles = document.createElement('style');
-      styles.textContent = `
-        h1, h2, h3, h4, h5, h6 { margin-top: 16px; margin-bottom: 8px; line-height: 1.2; }
-        h1 { font-size: 28px; }
-        h2 { font-size: 24px; }
-        h3 { font-size: 20px; }
-        h4 { font-size: 18px; }
-        h5 { font-size: 16px; }
-        h6 { font-size: 14px; }
-        p { margin-bottom: 10px; }
-        ul, ol { padding-left: 24px; margin-bottom: 10px; }
-        li { margin-bottom: 4px; }
-        pre { 
-          background-color: #f5f5f5; 
-          padding: 12px; 
-          border-radius: 4px; 
-          overflow-x: auto;
-          margin-bottom: 12px;
-          font-size: 12px;
-          font-family: monospace;
-          white-space: pre-wrap;
-        }
-        code { 
-          background-color: #f5f5f5; 
-          padding: 2px 4px; 
-          border-radius: 3px; 
-          font-family: monospace;
-          font-size: 12px;
-        }
-        blockquote {
-          border-left: 4px solid #ccc;
-          padding-left: 16px;
-          margin-left: 0;
-          margin-bottom: 12px;
-          font-style: italic;
-        }
-        img { max-width: 100%; }
-        a { color: #0066cc; text-decoration: underline; }
-        table {
-          border-collapse: collapse;
-          width: 100%;
-          margin-bottom: 16px;
-        }
-        th, td {
-          border: 1px solid #ddd;
-          padding: 8px;
-          text-align: left;
-        }
-        th { background-color: #f2f2f2; }
-        .footnotes { 
-          margin-top: 24px;
-          border-top: 1px solid #eee;
-          padding-top: 12px;
-        }
-      `;
-      
-      document.body.appendChild(styles);
-      document.body.appendChild(pdfContent);
-      
-      // Function to calculate height and split content for pagination
-      const generatePdfWithProperPagination = () => {
-        // A4 dimensions at 72 DPI
-        const pdf = new jsPDF({
-          orientation: 'portrait',
-          unit: 'pt',
-          format: 'a4'
-        });
-        
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const margin = 40;
-        const effectivePageHeight = pageHeight - (margin * 2);
-        
-        html2canvas(pdfContent, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: 'white',
-          scrollY: -window.scrollY
-        }).then(canvas => {
-          // Calculate necessary parameters
-          const imgData = canvas.toDataURL('image/jpeg', 1.0);
-          const imgWidth = pageWidth - (margin * 2);
-          const imgHeight = canvas.height * (imgWidth / canvas.width);
-          
-          // Add content to PDF with pagination
-          let heightLeft = imgHeight;
-          let position = 0;
-          let pageNumber = 1;
-          
-          // Add first page
-          pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
-          heightLeft -= effectivePageHeight;
-          
-          // Add additional pages if needed
-          while (heightLeft > 0) {
-            position = -pageNumber * effectivePageHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'JPEG', margin, position + margin, imgWidth, imgHeight);
-            heightLeft -= effectivePageHeight;
-            pageNumber++;
-          }
-          
-          // Save the PDF file
-          pdf.save('markdown-document.pdf');
-          
-          // Cleanup
-          document.body.removeChild(pdfContent);
-          document.body.removeChild(styles);
-          if (loadingText) loadingText.remove();
-        }).catch(error => {
-          console.error('PDF generation error:', error);
-          document.body.removeChild(pdfContent);
-          document.body.removeChild(styles);
-          if (loadingText) loadingText.remove();
-          alert('An error occurred while generating the PDF. Please try again.');
-        });
-      };
-      
-      // Allow time for content rendering
-      setTimeout(generatePdfWithProperPagination, 200);
-      
-    } catch (err) {
-      console.error('Error setting up PDF generation:', err);
-      if (loadingText) loadingText.remove();
-      alert('Failed to generate PDF. Please try again.');
+    if (!content) {
+      setIsPrinting(false);
+      return;
     }
-  }, [markdownText]);
+    
+    const options = {
+      margin: 10,
+      filename: 'document.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    
+    html2pdf()
+      .set(options)
+      .from(content)
+      .save()
+      .then(() => {
+        setIsPrinting(false);
+      })
+      .catch(error => {
+        console.error('PDF generation failed:', error);
+        setIsPrinting(false);
+      });
+  }, []);
 
   // Improved Markdown to HTML conversion with footnotes support
   const convertMarkdownToHtml = (markdown) => {
@@ -452,15 +330,27 @@ const MarkdownPreviewApp = () => {
               <button
                 onClick={generatePDF}
                 className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                disabled={!markdownText}
+                disabled={!markdownText || isPrinting}
               >
-                <Download className="w-4 h-4 mr-2" />
-                Download PDF
+                {isPrinting ? (
+                  <span>Generating PDF...</span>
+                ) : (
+                  <>
+                    <Printer className="w-4 h-4 mr-2" />
+                    Download PDF
+                  </>
+                )}
               </button>
             </div>
-            <div className="relative border border-gray-300 rounded-md shadow-sm p-6 bg-white h-96 overflow-auto">
+            
+            {/* Preview container for display */}
+            <div className="border border-gray-300 rounded-md shadow-sm p-6 bg-white h-96 overflow-auto">
               {markdownText ? (
-                <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(markdownText) }} />
+                <div 
+                  ref={printRef}
+                  className="markdown-preview" 
+                  dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(markdownText) }}
+                />
               ) : (
                 <p className="text-gray-400 text-center mt-20">Preview will appear here</p>
               )}
@@ -469,7 +359,7 @@ const MarkdownPreviewApp = () => {
         </div>
       </main>
       
-      <footer className="bg-gray-100 p-4 border-t border-gray-200">
+      <footer className="bg-gray-100 p-4 border-t border-gray-200 print:hidden">
         <div className="container mx-auto text-center text-gray-600 text-sm">
           <p>Markdown Preview & PDF Converter © 2025</p>
         </div>
