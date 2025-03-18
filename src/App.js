@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { FileText, Upload, Printer } from 'lucide-react';
 import _ from 'lodash';
-import html2pdf from 'html2pdf.js';
+import { pdf } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
 
 const MarkdownPreviewApp = () => {
   const [markdownText, setMarkdownText] = useState('');
@@ -9,7 +10,7 @@ const MarkdownPreviewApp = () => {
   const [isPrinting, setIsPrinting] = useState(false);
   
   // Create a ref for the markdown content
-  const printRef = useRef(null);
+  const contentRef = useRef(null);
   
   // Handle file drop
   const handleDrop = useCallback((e) => {
@@ -58,37 +59,180 @@ const MarkdownPreviewApp = () => {
     setMarkdownText(e.target.value);
   }, []);
 
-  // Generate PDF using html2pdf.js
-  const generatePDF = useCallback(() => {
+  // Generate PDF using react-pdf/renderer
+  const generatePDF = useCallback(async () => {
+    if (!markdownText) return;
+    
     setIsPrinting(true);
     
-    const content = printRef.current;
-    
-    if (!content) {
+    try {
+      // Create styles for the PDF document
+      const styles = StyleSheet.create({
+        page: {
+          flexDirection: 'column',
+          backgroundColor: '#FFFFFF',
+          padding: 30,
+        },
+        section: {
+          marginBottom: 10,
+        },
+        heading1: {
+          fontSize: 24,
+          fontWeight: 'bold',
+          marginBottom: 10,
+        },
+        heading2: {
+          fontSize: 20,
+          fontWeight: 'bold',
+          marginBottom: 8,
+        },
+        heading3: {
+          fontSize: 16,
+          fontWeight: 'bold',
+          marginBottom: 6,
+        },
+        paragraph: {
+          fontSize: 12,
+          marginBottom: 8,
+          lineHeight: 1.5,
+        },
+        listItem: {
+          fontSize: 12,
+          marginBottom: 5,
+          marginLeft: 10,
+          lineHeight: 1.5,
+        },
+      });
+      
+      // Parse markdown into structured content
+      const parsedContent = parseMarkdownForPDF(markdownText);
+      
+      // Create the PDF Document
+      const MyDocument = () => (
+        <Document>
+          <Page size="A4" style={styles.page}>
+            {parsedContent.map((item, index) => {
+              if (item.type === 'h1') {
+                return <Text key={index} style={styles.heading1}>{item.content}</Text>;
+              } else if (item.type === 'h2') {
+                return <Text key={index} style={styles.heading2}>{item.content}</Text>;
+              } else if (item.type === 'h3') {
+                return <Text key={index} style={styles.heading3}>{item.content}</Text>;
+              } else if (item.type === 'p') {
+                return <Text key={index} style={styles.paragraph}>{item.content}</Text>;
+              } else if (item.type === 'ul' || item.type === 'ol') {
+                return (
+                  <View key={index} style={styles.section}>
+                    {item.items.map((listItem, itemIndex) => (
+                      <Text key={`item-${index}-${itemIndex}`} style={styles.listItem}>
+                        {item.type === 'ul' ? '• ' : `${itemIndex + 1}. `}{listItem}
+                      </Text>
+                    ))}
+                  </View>
+                );
+              }
+              return <Text key={index} style={styles.paragraph}>{item.content}</Text>;
+            })}
+          </Page>
+        </Document>
+      );
+      
+      // Generate PDF blob
+      const blob = await pdf(<MyDocument />).toBlob();
+      
+      // Create a download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'document.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+    } catch (error) {
+      console.error('PDF generation failed:', error);
+    } finally {
       setIsPrinting(false);
-      return;
+    }
+  }, [markdownText]);
+  
+  // Parse markdown for PDF rendering
+  const parseMarkdownForPDF = (markdown) => {
+    if (!markdown) return [];
+    
+    const lines = markdown.split('\n');
+    const parsedContent = [];
+    let currentListItems = [];
+    let currentListType = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Close any open list
+      const closeList = () => {
+        if (currentListType && currentListItems.length > 0) {
+          parsedContent.push({
+            type: currentListType,
+            items: [...currentListItems]
+          });
+          currentListItems = [];
+          currentListType = null;
+        }
+      };
+      
+      // Handle headings
+      if (line.startsWith('# ')) {
+        closeList();
+        parsedContent.push({ type: 'h1', content: line.slice(2) });
+      } else if (line.startsWith('## ')) {
+        closeList();
+        parsedContent.push({ type: 'h2', content: line.slice(3) });
+      } else if (line.startsWith('### ')) {
+        closeList();
+        parsedContent.push({ type: 'h3', content: line.slice(4) });
+      } 
+      // Handle lists
+      else if (line.match(/^(\-|\*|\+)\s/)) {
+        const content = line.replace(/^(\-|\*|\+)\s/, '');
+        
+        if (currentListType !== 'ul') {
+          closeList();
+          currentListType = 'ul';
+        }
+        
+        currentListItems.push(content);
+      } else if (line.match(/^\d+\.\s/)) {
+        const content = line.replace(/^\d+\.\s/, '');
+        
+        if (currentListType !== 'ol') {
+          closeList();
+          currentListType = 'ol';
+        }
+        
+        currentListItems.push(content);
+      }
+      // Handle paragraphs
+      else if (line !== '') {
+        closeList();
+        parsedContent.push({ type: 'p', content: line });
+      }
+      // Handle empty lines
+      else if (line === '' && i > 0 && i < lines.length - 1) {
+        closeList();
+      }
     }
     
-    const options = {
-      margin: 10,
-      filename: 'document.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2 },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-    
-    html2pdf()
-      .set(options)
-      .from(content)
-      .save()
-      .then(() => {
-        setIsPrinting(false);
-      })
-      .catch(error => {
-        console.error('PDF generation failed:', error);
-        setIsPrinting(false);
+    // Close any remaining open list
+    if (currentListType && currentListItems.length > 0) {
+      parsedContent.push({
+        type: currentListType,
+        items: currentListItems
       });
-  }, []);
+    }
+    
+    return parsedContent;
+  };
 
   // Improved Markdown to HTML conversion with footnotes support
   const convertMarkdownToHtml = (markdown) => {
@@ -347,7 +491,7 @@ const MarkdownPreviewApp = () => {
             <div className="border border-gray-300 rounded-md shadow-sm p-6 bg-white h-96 overflow-auto">
               {markdownText ? (
                 <div 
-                  ref={printRef}
+                  ref={contentRef}
                   className="markdown-preview" 
                   dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(markdownText) }}
                 />
