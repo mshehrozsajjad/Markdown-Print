@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { FileText, Upload, Printer } from 'lucide-react';
 import _ from 'lodash';
 import { pdf } from '@react-pdf/renderer';
-import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Link, Font } from '@react-pdf/renderer';
 
 const MarkdownPreviewApp = () => {
   const [markdownText, setMarkdownText] = useState('');
@@ -102,37 +102,152 @@ const MarkdownPreviewApp = () => {
           marginLeft: 10,
           lineHeight: 1.5,
         },
+        link: {
+          color: '#1a0dab',
+          textDecoration: 'underline',
+        },
+        emphasis: {
+          fontStyle: 'italic',
+        },
+        strong: {
+          fontWeight: 'bold',
+        },
+        footnoteLink: {
+          fontSize: 8,
+          color: '#1a0dab',
+          textDecoration: 'none',
+        },
+        footnoteSection: {
+          marginTop: 20,
+          borderTopWidth: 1,
+          borderTopColor: '#cccccc',
+          paddingTop: 10,
+        },
+        footnoteTitle: {
+          fontSize: 14,
+          fontWeight: 'bold',
+          marginBottom: 8,
+        },
+        footnoteItem: {
+          fontSize: 10,
+          marginBottom: 5,
+          flexDirection: 'row',
+        },
+        footnoteNumber: {
+          width: 20,
+          fontSize: 10,
+        },
+        footnoteText: {
+          flex: 1,
+          fontSize: 10,
+        },
+        codeBlock: {
+          fontFamily: 'Courier',
+          fontSize: 10,
+          backgroundColor: '#f5f5f5',
+          padding: 8,
+          borderRadius: 3,
+          marginVertical: 8,
+        },
+        inlineCode: {
+          fontFamily: 'Courier',
+          fontSize: 10,
+          backgroundColor: '#f5f5f5',
+          padding: 3,
+          borderRadius: 2,
+        },
+        blockquote: {
+          borderLeftWidth: 3,
+          borderLeftColor: '#cccccc',
+          paddingLeft: 10,
+          fontStyle: 'italic',
+          marginVertical: 8,
+        },
       });
       
       // Parse markdown into structured content
-      const parsedContent = parseMarkdownForPDF(markdownText);
+      const { content: parsedContent, footnotes } = parseMarkdownForPDF(markdownText);
       
       // Create the PDF Document
       const MyDocument = () => (
         <Document>
-          <Page size="A4" style={styles.page}>
+          <Page size="A4" style={styles.page} wrap>
             {parsedContent.map((item, index) => {
               if (item.type === 'h1') {
-                return <Text key={index} style={styles.heading1}>{item.content}</Text>;
+                return (
+                  <Text key={index} style={styles.heading1}>
+                    {renderRichText(item.content, styles, footnotes)}
+                  </Text>
+                );
               } else if (item.type === 'h2') {
-                return <Text key={index} style={styles.heading2}>{item.content}</Text>;
+                return (
+                  <Text key={index} style={styles.heading2}>
+                    {renderRichText(item.content, styles, footnotes)}
+                  </Text>
+                );
               } else if (item.type === 'h3') {
-                return <Text key={index} style={styles.heading3}>{item.content}</Text>;
+                return (
+                  <Text key={index} style={styles.heading3}>
+                    {renderRichText(item.content, styles, footnotes)}
+                  </Text>
+                );
               } else if (item.type === 'p') {
-                return <Text key={index} style={styles.paragraph}>{item.content}</Text>;
+                return (
+                  <Text key={index} style={styles.paragraph}>
+                    {renderRichText(item.content, styles, footnotes)}
+                  </Text>
+                );
+              } else if (item.type === 'blockquote') {
+                return (
+                  <View key={index} style={styles.blockquote}>
+                    <Text style={styles.paragraph}>
+                      {renderRichText(item.content, styles, footnotes)}
+                    </Text>
+                  </View>
+                );
+              } else if (item.type === 'code') {
+                return (
+                  <View key={index} style={styles.codeBlock}>
+                    <Text>{item.content}</Text>
+                  </View>
+                );
               } else if (item.type === 'ul' || item.type === 'ol') {
                 return (
                   <View key={index} style={styles.section}>
                     {item.items.map((listItem, itemIndex) => (
-                      <Text key={`item-${index}-${itemIndex}`} style={styles.listItem}>
-                        {item.type === 'ul' ? '• ' : `${itemIndex + 1}. `}{listItem}
-                      </Text>
+                      <View key={`item-${index}-${itemIndex}`} style={{ flexDirection: 'row' }}>
+                        <Text style={{ width: 15 }}>
+                          {item.type === 'ul' ? '• ' : `${itemIndex + 1}.`}
+                        </Text>
+                        <Text style={[styles.listItem, { flex: 1 }]}>
+                          {renderRichText(listItem, styles, footnotes)}
+                        </Text>
+                      </View>
                     ))}
                   </View>
                 );
               }
-              return <Text key={index} style={styles.paragraph}>{item.content}</Text>;
+              return (
+                <Text key={index} style={styles.paragraph}>
+                  {renderRichText(String(item.content), styles, footnotes)}
+                </Text>
+              );
             })}
+            
+            {/* Footnotes section */}
+            {footnotes.length > 0 && (
+              <View style={styles.footnoteSection} break>
+                <Text style={styles.footnoteTitle}>References & Footnotes</Text>
+                {footnotes.map((footnote, index) => (
+                  <View key={`footnote-${index}`} style={styles.footnoteItem}>
+                    <Text style={styles.footnoteNumber}>[{index + 1}]</Text>
+                    <Link src={footnote.url} style={styles.footnoteText}>
+                      {footnote.title || footnote.url}
+                    </Link>
+                  </View>
+                ))}
+              </View>
+            )}
           </Page>
         </Document>
       );
@@ -157,14 +272,144 @@ const MarkdownPreviewApp = () => {
     }
   }, [markdownText]);
   
+  // Render rich text elements in PDF
+  const renderRichText = (text, styles, footnotes) => {
+    if (!text) return null;
+    
+    // Process the text to identify formatting
+    const parts = [];
+    let currentText = '';
+    let inBold = false;
+    let inItalic = false;
+    let inLink = false;
+    let linkHref = '';
+    let linkText = '';
+    
+    for (let i = 0; i < text.length; i++) {
+      // Check for bold formatting
+      if (text.substring(i, i + 2) === '**' || text.substring(i, i + 2) === '__') {
+        if (!inBold) {
+          if (currentText) {
+            parts.push({ type: 'text', content: currentText });
+            currentText = '';
+          }
+          inBold = true;
+          i += 1; // Skip the formatting characters
+        } else {
+          parts.push({ type: 'bold', content: currentText });
+          currentText = '';
+          inBold = false;
+          i += 1; // Skip the formatting characters
+        }
+        continue;
+      }
+      
+      // Check for italic formatting
+      if ((text[i] === '*' || text[i] === '_') && text[i-1] !== '*' && text[i+1] !== '*') {
+        if (!inItalic) {
+          if (currentText) {
+            parts.push({ type: 'text', content: currentText });
+            currentText = '';
+          }
+          inItalic = true;
+        } else {
+          parts.push({ type: 'italic', content: currentText });
+          currentText = '';
+          inItalic = false;
+        }
+        continue;
+      }
+      
+      // Check for link
+      if (text.substring(i, i + 1) === '[' && !inLink) {
+        const linkMatch = text.substring(i).match(/\[(.*?)\]\((.*?)\)/);
+        if (linkMatch) {
+          if (currentText) {
+            parts.push({ type: 'text', content: currentText });
+            currentText = '';
+          }
+          
+          linkText = linkMatch[1];
+          linkHref = linkMatch[2];
+          
+          // Find or add the link to footnotes
+          let footnoteLinkIndex = footnotes.findIndex(fn => fn.url === linkHref);
+          if (footnoteLinkIndex === -1) {
+            footnotes.push({
+              url: linkHref,
+              title: linkText !== linkHref ? linkText : null
+            });
+            footnoteLinkIndex = footnotes.length - 1;
+          }
+          
+          parts.push({ 
+            type: 'link', 
+            url: linkHref, 
+            text: linkText,
+            footnoteIndex: footnoteLinkIndex + 1
+          });
+          
+          i += linkMatch[0].length - 1; // Skip the entire link markup
+          continue;
+        }
+      }
+      
+      // Check for inline code
+      if (text.substring(i, i + 1) === '`') {
+        const codeMatch = text.substring(i).match(/`(.*?)`/);
+        if (codeMatch) {
+          if (currentText) {
+            parts.push({ type: 'text', content: currentText });
+            currentText = '';
+          }
+          
+          parts.push({ type: 'code', content: codeMatch[1] });
+          
+          i += codeMatch[0].length - 1; // Skip the entire code markup
+          continue;
+        }
+      }
+      
+      currentText += text[i];
+    }
+    
+    if (currentText) {
+      parts.push({ type: 'text', content: currentText });
+    }
+    
+    // Render each part with appropriate styling
+    return parts.map((part, index) => {
+      if (part.type === 'bold') {
+        return <Text key={index} style={styles.strong}>{part.content}</Text>;
+      } else if (part.type === 'italic') {
+        return <Text key={index} style={styles.emphasis}>{part.content}</Text>;
+      } else if (part.type === 'link') {
+        return (
+          <React.Fragment key={index}>
+            <Link src={part.url} style={styles.link}>{part.text}</Link>
+            <Text style={styles.footnoteLink}>[{part.footnoteIndex}]</Text>
+          </React.Fragment>
+        );
+      } else if (part.type === 'code') {
+        return <Text key={index} style={styles.inlineCode}>{part.content}</Text>;
+      } else {
+        return part.content;
+      }
+    });
+  };
+  
   // Parse markdown for PDF rendering
   const parseMarkdownForPDF = (markdown) => {
-    if (!markdown) return [];
+    if (!markdown) return { content: [], footnotes: [] };
     
     const lines = markdown.split('\n');
     const parsedContent = [];
+    const footnotes = [];
     let currentListItems = [];
     let currentListType = null;
+    let currentCodeBlock = null;
+    let codeLanguage = '';
+    let inCodeBlock = false;
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -181,6 +426,30 @@ const MarkdownPreviewApp = () => {
         }
       };
       
+      // Handle code blocks
+      if (line.startsWith('```')) {
+        if (!inCodeBlock) {
+          closeList();
+          inCodeBlock = true;
+          codeLanguage = line.slice(3);
+          currentCodeBlock = '';
+        } else {
+          parsedContent.push({
+            type: 'code',
+            content: currentCodeBlock,
+            language: codeLanguage
+          });
+          inCodeBlock = false;
+          currentCodeBlock = null;
+        }
+        continue;
+      }
+      
+      if (inCodeBlock) {
+        currentCodeBlock += line + '\n';
+        continue;
+      }
+      
       // Handle headings
       if (line.startsWith('# ')) {
         closeList();
@@ -191,7 +460,26 @@ const MarkdownPreviewApp = () => {
       } else if (line.startsWith('### ')) {
         closeList();
         parsedContent.push({ type: 'h3', content: line.slice(4) });
-      } 
+      } else if (line.startsWith('#### ')) {
+        closeList();
+        parsedContent.push({ type: 'h4', content: line.slice(5) });
+      } else if (line.startsWith('##### ')) {
+        closeList();
+        parsedContent.push({ type: 'h5', content: line.slice(6) });
+      } else if (line.startsWith('###### ')) {
+        closeList();
+        parsedContent.push({ type: 'h6', content: line.slice(7) });
+      }
+      // Handle blockquotes
+      else if (line.startsWith('> ')) {
+        closeList();
+        parsedContent.push({ type: 'blockquote', content: line.slice(2) });
+      }
+      // Handle horizontal rule
+      else if (line.match(/^(\*\*\*|\-\-\-|\_\_\_)$/)) {
+        closeList();
+        parsedContent.push({ type: 'hr' });
+      }
       // Handle lists
       else if (line.match(/^(\-|\*|\+)\s/)) {
         const content = line.replace(/^(\-|\*|\+)\s/, '');
@@ -231,7 +519,10 @@ const MarkdownPreviewApp = () => {
       });
     }
     
-    return parsedContent;
+    return {
+      content: parsedContent,
+      footnotes
+    };
   };
 
   // Improved Markdown to HTML conversion with footnotes support
