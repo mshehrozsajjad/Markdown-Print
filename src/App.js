@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { FileText, Download, Upload, Copy } from 'lucide-react';
 import _ from 'lodash';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const MarkdownPreviewApp = () => {
   const [markdownText, setMarkdownText] = useState('');
@@ -53,55 +55,161 @@ const MarkdownPreviewApp = () => {
     setMarkdownText(e.target.value);
   }, []);
 
-  // Generate PDF by converting HTML to PDF 
-  // Note: In a production app, you would implement actual PDF generation with a library
+  // Generate PDF using jsPDF and html2canvas
   const generatePDF = useCallback(() => {
-    // For a real implementation, you would:
-    // 1. Get the rendered HTML from the preview div
-    // 2. Use a library like html2pdf.js or jsPDF to convert this to PDF
-    // 3. Trigger the download
+    const previewElement = document.querySelector('.markdown-preview');
     
-    // For now, we're simulating PDF download with HTML
-    const previewContent = document.querySelector('.markdown-preview').innerHTML;
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Converted Document</title>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
-            h1 { font-size: 28px; margin-top: 20px; }
-            h2 { font-size: 24px; margin-top: 18px; }
-            h3 { font-size: 20px; margin-top: 16px; }
-            h4 { font-size: 18px; margin-top: 14px; }
-            h5 { font-size: 16px; margin-top: 12px; }
-            h6 { font-size: 14px; margin-top: 10px; }
-            ul, ol { padding-left: 20px; }
-            blockquote { border-left: 4px solid #ccc; padding-left: 16px; margin-left: 0; }
-            pre { background-color: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; }
-            code { background-color: #f5f5f5; padding: 2px 4px; border-radius: 4px; }
-            img { max-width: 100%; }
-            .footnotes { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
-            .footnotes ol { padding-left: 20px; }
-            .footnotes li { margin-bottom: 8px; }
-            sup { vertical-align: super; font-size: smaller; }
-          </style>
-        </head>
-        <body>
-          ${previewContent}
-        </body>
-      </html>
-    `;
-
-    const element = document.createElement('a');
-    const file = new Blob([htmlContent], {type: 'text/html'});
-    element.href = URL.createObjectURL(file);
-    element.download = 'document.html';
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+    if (!previewElement) return;
     
-    alert("Note: This is downloading as HTML. In a full implementation, this would generate a proper PDF file using a library like jsPDF or html2pdf.js");
+    // Show a loading indicator
+    const loadingText = document.createElement('div');
+    loadingText.className = 'absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10';
+    loadingText.innerHTML = '<span class="text-blue-600 font-medium">Generating PDF...</span>';
+    previewElement.parentNode.appendChild(loadingText);
+    
+    try {
+      // Prepare content for PDF generation with better styling
+      const pdfContent = document.createElement('div');
+      pdfContent.innerHTML = previewElement.innerHTML;
+      pdfContent.style.width = '816px'; // A4 width at 96 DPI
+      pdfContent.style.padding = '48px';
+      pdfContent.style.boxSizing = 'border-box';
+      pdfContent.style.fontSize = '14px';
+      pdfContent.style.lineHeight = '1.5';
+      pdfContent.style.fontFamily = 'Arial, Helvetica, sans-serif';
+      pdfContent.style.position = 'absolute';
+      pdfContent.style.left = '-9999px';
+      pdfContent.style.top = '0';
+      pdfContent.style.backgroundColor = 'white';
+      
+      // Apply additional styles for better formatting
+      const styles = document.createElement('style');
+      styles.textContent = `
+        h1, h2, h3, h4, h5, h6 { margin-top: 16px; margin-bottom: 8px; line-height: 1.2; }
+        h1 { font-size: 28px; }
+        h2 { font-size: 24px; }
+        h3 { font-size: 20px; }
+        h4 { font-size: 18px; }
+        h5 { font-size: 16px; }
+        h6 { font-size: 14px; }
+        p { margin-bottom: 10px; }
+        ul, ol { padding-left: 24px; margin-bottom: 10px; }
+        li { margin-bottom: 4px; }
+        pre { 
+          background-color: #f5f5f5; 
+          padding: 12px; 
+          border-radius: 4px; 
+          overflow-x: auto;
+          margin-bottom: 12px;
+          font-size: 12px;
+          font-family: monospace;
+          white-space: pre-wrap;
+        }
+        code { 
+          background-color: #f5f5f5; 
+          padding: 2px 4px; 
+          border-radius: 3px; 
+          font-family: monospace;
+          font-size: 12px;
+        }
+        blockquote {
+          border-left: 4px solid #ccc;
+          padding-left: 16px;
+          margin-left: 0;
+          margin-bottom: 12px;
+          font-style: italic;
+        }
+        img { max-width: 100%; }
+        a { color: #0066cc; text-decoration: underline; }
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          margin-bottom: 16px;
+        }
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        th { background-color: #f2f2f2; }
+        .footnotes { 
+          margin-top: 24px;
+          border-top: 1px solid #eee;
+          padding-top: 12px;
+        }
+      `;
+      
+      document.body.appendChild(styles);
+      document.body.appendChild(pdfContent);
+      
+      // Function to calculate height and split content for pagination
+      const generatePdfWithProperPagination = () => {
+        // A4 dimensions at 72 DPI
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'pt',
+          format: 'a4'
+        });
+        
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const margin = 40;
+        const effectivePageHeight = pageHeight - (margin * 2);
+        
+        html2canvas(pdfContent, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: 'white',
+          scrollY: -window.scrollY
+        }).then(canvas => {
+          // Calculate necessary parameters
+          const imgData = canvas.toDataURL('image/jpeg', 1.0);
+          const imgWidth = pageWidth - (margin * 2);
+          const imgHeight = canvas.height * (imgWidth / canvas.width);
+          
+          // Add content to PDF with pagination
+          let heightLeft = imgHeight;
+          let position = 0;
+          let pageNumber = 1;
+          
+          // Add first page
+          pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
+          heightLeft -= effectivePageHeight;
+          
+          // Add additional pages if needed
+          while (heightLeft > 0) {
+            position = -pageNumber * effectivePageHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', margin, position + margin, imgWidth, imgHeight);
+            heightLeft -= effectivePageHeight;
+            pageNumber++;
+          }
+          
+          // Save the PDF file
+          pdf.save('markdown-document.pdf');
+          
+          // Cleanup
+          document.body.removeChild(pdfContent);
+          document.body.removeChild(styles);
+          if (loadingText) loadingText.remove();
+        }).catch(error => {
+          console.error('PDF generation error:', error);
+          document.body.removeChild(pdfContent);
+          document.body.removeChild(styles);
+          if (loadingText) loadingText.remove();
+          alert('An error occurred while generating the PDF. Please try again.');
+        });
+      };
+      
+      // Allow time for content rendering
+      setTimeout(generatePdfWithProperPagination, 200);
+      
+    } catch (err) {
+      console.error('Error setting up PDF generation:', err);
+      if (loadingText) loadingText.remove();
+      alert('Failed to generate PDF. Please try again.');
+    }
   }, [markdownText]);
 
   // Improved Markdown to HTML conversion with footnotes support
@@ -347,10 +455,10 @@ const MarkdownPreviewApp = () => {
                 disabled={!markdownText}
               >
                 <Download className="w-4 h-4 mr-2" />
-                Download
+                Download PDF
               </button>
             </div>
-            <div className="border border-gray-300 rounded-md shadow-sm p-6 bg-white h-96 overflow-auto">
+            <div className="relative border border-gray-300 rounded-md shadow-sm p-6 bg-white h-96 overflow-auto">
               {markdownText ? (
                 <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(markdownText) }} />
               ) : (
